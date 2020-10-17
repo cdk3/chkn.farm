@@ -1,0 +1,26 @@
+{
+  "name": "chkn.farm",
+  "version": "1.0.0",
+  "main": "index.js",
+  "dependencies": {
+    "@openzeppelin/contracts": "^3.1.0",
+    "@openzeppelin/test-helpers": "^0.5.6",
+    "@truffle/hdwallet-provider": "^1.1.0",
+    "truffle": "^5.1.43",
+    "truffle-contract": "^4.0.31"
+  },
+  "devDependencies": {
+    "@types/chai": "^4.2.6",
+    "@types/mocha": "^5.2.7",
+    "chai": "^4.2.0",
+    "ethereum-waffle": "^2.4.1",
+    "ethereumjs-util": "^6.2.0",
+    "mocha": "^6.2.2",
+    "ncp": "^2.0.0",
+    "prettier": "^1.19.1",
+    "rimraf": "^3.0.0",
+    "solc": "0.6.6",
+    "ts-node": "^8.5.4",
+    "typescript": "^3.7.3"
+  }
+}
