@@ -4,7 +4,9 @@ import "../abstract/SubordinateTokenPool.sol";
 
 contract MockSubordinateTokenPool is SubordinateTokenPool {
 
-  event AsSubordinate(string name, uint256 count, uint256 milestone, uint256 balance, uint256 managerBalance);
+  event BeforeUnlockAsSubordinate(uint256 count, uint256 milestone, uint256 balance, uint256 managerBalance);
+  event UnlockAsSubordinate(uint256 count, uint256 milestone, uint256 balance, uint256 managerBalance);
+  event AfterUnlockAsSubordinate(uint256 count, uint256 milestone, uint256 balance, uint256 managerBalance);
 
   uint256 subordinateCount;
 
@@ -23,7 +25,7 @@ contract MockSubordinateTokenPool is SubordinateTokenPool {
 
     IERC20 _token = token();
     uint256 _milestone = ITokenPool(tokenPool).milestone();
-    emit AsSubordinate('BeforeUnlock', subordinateCount++, _milestone, _token.balanceOf(address(this)), _token.balanceOf(tokenPool));
+    emit BeforeUnlockAsSubordinate(subordinateCount++, _milestone, _token.balanceOf(address(this)), _token.balanceOf(tokenPool));
 
     _beforeUnlock();
   }
@@ -31,7 +33,7 @@ contract MockSubordinateTokenPool is SubordinateTokenPool {
   function unlockAsSubordinate() external virtual override onlyManager {
     IERC20 _token = token();
     uint256 _milestone = ITokenPool(tokenPool).milestone();
-    emit AsSubordinate('Unlock', subordinateCount++, _milestone, _token.balanceOf(address(this)), _token.balanceOf(tokenPool));
+    emit UnlockAsSubordinate(subordinateCount++, _milestone, _token.balanceOf(address(this)), _token.balanceOf(tokenPool));
 
     _unlock();
   }
@@ -39,7 +41,7 @@ contract MockSubordinateTokenPool is SubordinateTokenPool {
   function afterUnlockAsSubordinate() external virtual override onlyManager {
     IERC20 _token = token();
     uint256 _milestone = ITokenPool(tokenPool).milestone();
-    emit AsSubordinate('AfterUnlock', subordinateCount++, _milestone, _token.balanceOf(address(this)), _token.balanceOf(tokenPool));
+    emit AfterUnlockAsSubordinate(subordinateCount++, _milestone, _token.balanceOf(address(this)), _token.balanceOf(tokenPool));
 
     _afterUnlock();
   }

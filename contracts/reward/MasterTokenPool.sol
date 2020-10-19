@@ -11,7 +11,7 @@ import "@openzeppelin/contracts/math/SafeMath.sol";
 contract MasterTokenPool is SubordinateManagingPool, DepositMilestoneTokenPool, Ownable {
   using SafeMath for uint256;
 
-  event PoolsSet(address[] pools, uint256[] poolShare);
+  event SetPools(address[] pools, uint256[] poolShare);
 
   address public devaddr;
 
@@ -42,7 +42,7 @@ contract MasterTokenPool is SubordinateManagingPool, DepositMilestoneTokenPool, 
     poolShare = _poolShare;
     totalPoolShare = _totalPoolShare;
 
-    emit PoolsSet(pools, poolShare);
+    emit SetPools(pools, poolShare);
   }
 
   function setPools(address[] calldata _pools, uint256[] calldata _poolShare) public onlyOwner {
@@ -59,7 +59,7 @@ contract MasterTokenPool is SubordinateManagingPool, DepositMilestoneTokenPool, 
     poolShare = _poolShare;
     totalPoolShare = _totalPoolShare;
 
-    emit PoolsSet(pools, poolShare);
+    emit SetPools(pools, poolShare);
   }
 
   function _beforeUnlock() internal override(SubordinateManagingPool, DepositMilestoneTokenPool) {
@@ -79,12 +79,13 @@ contract MasterTokenPool is SubordinateManagingPool, DepositMilestoneTokenPool, 
       funds = balance;
     }
 
+    uint256 remaining = funds;
     for (uint i = 0; i < pools.length - 1; i++) {
       uint256 share = funds.mul(poolShare[i]).div(totalPoolShare);
       token.transfer(pools[i], share);
-      funds = funds.sub(share);
+      remaining = remaining.sub(share);
     }
-    token.transfer(pools[pools.length - 1], funds);
+    token.transfer(pools[pools.length - 1], remaining);
 
     // note change in funds
     _updateTokenBalance();

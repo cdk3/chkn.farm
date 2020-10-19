@@ -14,7 +14,8 @@ contract('MasterTokenPool', ([alice, bob, minter, dev, owner]) => {
     beforeEach(async () => {
         this.subordinate1 = await MockSubordinateTokenPool.new();
         this.subordinate2 = await MockSubordinateTokenPool.new();
-        this.pools = [this.subordinate1.address, this.subordinate2.address];
+        this.subordinate3 = await MockSubordinateTokenPool.new();
+        this.pools = [this.subordinate1.address, this.subordinate2.address, this.subordinate3.address];
         this.token = await MockERC20.new('TOKEN1', 'TOKEN', '100000000', { from: minter });
     });
 
@@ -24,15 +25,16 @@ contract('MasterTokenPool', ([alice, bob, minter, dev, owner]) => {
     });
 
     it('constructor should fail if pool shares sum to zero', async () => {
-      await expectRevert(MasterTokenPool.new(this.token.address, MILESTONES, 100000, this.pools, [0, 0], dev),
+      await expectRevert(MasterTokenPool.new(this.token.address, MILESTONES, 100000, this.pools, [0, 0, 0], dev),
         "MasterRewardPool::constructor: _poolShare must sum to > 0");
     });
 
     it('constructor should set public values appropriately', async () => {
-      const pool = await MasterTokenPool.new(this.token.address, MILESTONES, 100000, this.pools, [1, 2], dev);
+      const pool = await MasterTokenPool.new(this.token.address, MILESTONES, 100000, this.pools, [1, 2, 3], dev);
 
       assert.equal(await pool.pools(0), this.pools[0]);
       assert.equal(await pool.pools(1), this.pools[1]);
+      assert.equal(await pool.pools(2), this.pools[2]);
 
       assert.equal(await pool.token(), this.token.address);
       assert.equal(await pool.milestone(), '0');
@@ -44,11 +46,12 @@ contract('MasterTokenPool', ([alice, bob, minter, dev, owner]) => {
       assert.equal(await pool.devaddr(), dev);
       assert.equal(await pool.poolShare(0), '1');
       assert.equal(await pool.poolShare(1), '2');
-      assert.equal(await pool.totalPoolShare(), '3');
+      assert.equal(await pool.poolShare(2), '3');
+      assert.equal(await pool.totalPoolShare(), '6');
     });
 
     it('only dev can change devaddr', async () => {
-      const pool = await MasterTokenPool.new(this.token.address, MILESTONES, 100000, this.pools, [1, 2], dev);
+      const pool = await MasterTokenPool.new(this.token.address, MILESTONES, 100000, this.pools, [1, 2, 3], dev);
 
       await expectRevert(pool.dev(alice),
         "MasterTokenPool::dev caller is not the devaddr");
@@ -65,14 +68,15 @@ contract('MasterTokenPool', ([alice, bob, minter, dev, owner]) => {
 
     context('migrating to new subordinate pools', () => {
       beforeEach(async () => {
-        this.pool = await MasterTokenPool.new(this.token.address, MILESTONES, 100000, this.pools, [1, 2], dev, { from:owner });
+        this.pool = await MasterTokenPool.new(this.token.address, MILESTONES, 100000, this.pools, [1, 2, 3], dev, { from:owner });
         await this.subordinate1.setTokenPool(this.pool.address);
         await this.subordinate2.setTokenPool(this.pool.address);
+        await this.subordinate3.setTokenPool(this.pool.address);
 
-        this.subordinate3 = await MockSubordinateTokenPool.new();
         this.subordinate4 = await MockSubordinateTokenPool.new();
         this.subordinate5 = await MockSubordinateTokenPool.new();
-        this.poolsAlt = [this.subordinate3.address, this.subordinate4.address, this.subordinate5.address];
+        this.subordinate6 = await MockSubordinateTokenPool.new();
+        this.poolsAlt = [this.subordinate4.address, this.subordinate5.address, this.subordinate6.address];
       });
 
       it('only owner can setPools', async () => {
@@ -116,9 +120,10 @@ contract('MasterTokenPool', ([alice, bob, minter, dev, owner]) => {
 
     context('with subordinate pools', () => {
       beforeEach(async () => {
-        this.pool = await MasterTokenPool.new(this.token.address, MILESTONES, 100000, this.pools, [1, 2], dev);
+        this.pool = await MasterTokenPool.new(this.token.address, MILESTONES, 100000, this.pools, [1, 2, 3], dev);
         await this.subordinate1.setTokenPool(this.pool.address);
         await this.subordinate2.setTokenPool(this.pool.address);
+        await this.subordinate3.setTokenPool(this.pool.address);
       });
 
       const getMilestoneRange = (milestone) => {
@@ -380,22 +385,24 @@ contract('MasterTokenPool', ([alice, bob, minter, dev, owner]) => {
 
       const expectFunds = async (milestone, progress, explicit = {}) => {
         let { dev:devFunds, pool:poolFunds } = explicit;
-        const { token, subordinate1, subordinate2 } = this;
+        const { token, subordinate1, subordinate2, subordinate3 } = this;
 
         const [start, goal] = getMilestoneRange(milestone);
-        const poolshare1 = Math.floor(start / 4);
-        const poolshare2 = Math.floor(start / 2);
+        const poolshare1 = Math.floor(start / 8);   // 1/8th total
+        const poolshare2 = Math.floor(start / 4);   // 1/4th total
+        const poolshare3 = Math.ceil(3 * start / 8);   // calculated using subtraction internally (use ceil)
 
         if (devFunds === void 0) {
           devFunds = Math.floor(progress / 4);
         }
         if (poolFunds === void 0) {
-          poolFunds = progress - (devFunds + poolshare1 + poolshare2)
+          poolFunds = progress - (devFunds + poolshare1 + poolshare2 + poolshare3)
         }
 
         assert.equal(bns(await token.balanceOf(dev)), `${devFunds}`);
         assert.equal(bns(await token.balanceOf(subordinate1.address)), `${poolshare1}`);
         assert.equal(bns(await token.balanceOf(subordinate2.address)), `${poolshare2}`);
+        assert.equal(bns(await token.balanceOf(subordinate3.address)), `${poolshare3}`);
         assert.equal(bns(await token.balanceOf(this.pool.address)), `${poolFunds}`);
       }
 
@@ -546,49 +553,83 @@ contract('MasterTokenPool', ([alice, bob, minter, dev, owner]) => {
 
         out = await pool.unlock();
         tx = out.tx;
-        await expectEvent.notEmitted.inTransaction(tx, this.subordinate1, 'AsSubordinate');
-        await expectEvent.notEmitted.inTransaction(tx, this.subordinate2, 'AsSubordinate');
+        await expectEvent.notEmitted.inTransaction(tx, this.subordinate1, 'BeforeUnlockAsSubordinate');
+        await expectEvent.notEmitted.inTransaction(tx, this.subordinate1, 'UnlockAsSubordinate');
+        await expectEvent.notEmitted.inTransaction(tx, this.subordinate1, 'AfterUnlockAsSubordinate');
+        await expectEvent.notEmitted.inTransaction(tx, this.subordinate2, 'BeforeUnlockAsSubordinate');
+        await expectEvent.notEmitted.inTransaction(tx, this.subordinate2, 'UnlockAsSubordinate');
+        await expectEvent.notEmitted.inTransaction(tx, this.subordinate2, 'AfterUnlockAsSubordinate');
+        await expectEvent.notEmitted.inTransaction(tx, this.subordinate3, 'BeforeUnlockAsSubordinate');
+        await expectEvent.notEmitted.inTransaction(tx, this.subordinate3, 'UnlockAsSubordinate');
+        await expectEvent.notEmitted.inTransaction(tx, this.subordinate3, 'AfterUnlockAsSubordinate');
         // no events
 
 
         await token.transfer(pool.address, 8, { from:minter });
         out = await pool.unlock();
         tx = out.tx;
-        await expectEvent.notEmitted.inTransaction(tx, this.subordinate1, 'AsSubordinate');
-        await expectEvent.notEmitted.inTransaction(tx, this.subordinate2, 'AsSubordinate');
+        await expectEvent.notEmitted.inTransaction(tx, this.subordinate1, 'BeforeUnlockAsSubordinate');
+        await expectEvent.notEmitted.inTransaction(tx, this.subordinate1, 'UnlockAsSubordinate');
+        await expectEvent.notEmitted.inTransaction(tx, this.subordinate1, 'AfterUnlockAsSubordinate');
+        await expectEvent.notEmitted.inTransaction(tx, this.subordinate2, 'BeforeUnlockAsSubordinate');
+        await expectEvent.notEmitted.inTransaction(tx, this.subordinate2, 'UnlockAsSubordinate');
+        await expectEvent.notEmitted.inTransaction(tx, this.subordinate2, 'AfterUnlockAsSubordinate');
+        await expectEvent.notEmitted.inTransaction(tx, this.subordinate3, 'BeforeUnlockAsSubordinate');
+        await expectEvent.notEmitted.inTransaction(tx, this.subordinate3, 'UnlockAsSubordinate');
+        await expectEvent.notEmitted.inTransaction(tx, this.subordinate3, 'AfterUnlockAsSubordinate');
 
         await token.transfer(pool.address, 32, { from:minter });
         out = await pool.unlock();
         tx = out.tx;
-        await expectEvent.notEmitted.inTransaction(tx, this.subordinate1, 'AsSubordinate');
-        await expectEvent.notEmitted.inTransaction(tx, this.subordinate2, 'AsSubordinate');
+        await expectEvent.notEmitted.inTransaction(tx, this.subordinate1, 'BeforeUnlockAsSubordinate');
+        await expectEvent.notEmitted.inTransaction(tx, this.subordinate1, 'UnlockAsSubordinate');
+        await expectEvent.notEmitted.inTransaction(tx, this.subordinate1, 'AfterUnlockAsSubordinate');
+        await expectEvent.notEmitted.inTransaction(tx, this.subordinate2, 'BeforeUnlockAsSubordinate');
+        await expectEvent.notEmitted.inTransaction(tx, this.subordinate2, 'UnlockAsSubordinate');
+        await expectEvent.notEmitted.inTransaction(tx, this.subordinate2, 'AfterUnlockAsSubordinate');
+        await expectEvent.notEmitted.inTransaction(tx, this.subordinate3, 'BeforeUnlockAsSubordinate');
+        await expectEvent.notEmitted.inTransaction(tx, this.subordinate3, 'UnlockAsSubordinate');
+        await expectEvent.notEmitted.inTransaction(tx, this.subordinate3, 'AfterUnlockAsSubordinate');
 
         await token.transfer(pool.address, 80, { from:minter });
         await expectFunds(0, 8, { dev:10, pool:110 });
         out = await pool.unlock();
         tx = out.tx;
-        await expectEvent.inTransaction(tx, this.subordinate1, 'AsSubordinate', { name:'BeforeUnlock', count:'0', milestone:'0', balance:'0', managerBalance:'90' });
-        await expectEvent.inTransaction(tx, this.subordinate1, 'AsSubordinate', { name:'Unlock', count:'1', milestone:'1', balance:'25', managerBalance:'15' });
-        await expectEvent.inTransaction(tx, this.subordinate1, 'AsSubordinate', { name:'AfterUnlock', count:'2', milestone:'1', balance:'25', managerBalance:'15' });
-        await expectEvent.inTransaction(tx, this.subordinate2, 'AsSubordinate', { name:'BeforeUnlock', count:'0', milestone:'0', balance:'0', managerBalance:'90' });
-        await expectEvent.inTransaction(tx, this.subordinate2, 'AsSubordinate', { name:'Unlock', count:'1', milestone:'1', balance:'50', managerBalance:'15' });
-        await expectEvent.inTransaction(tx, this.subordinate2, 'AsSubordinate', { name:'AfterUnlock', count:'2', milestone:'1', balance:'50', managerBalance:'15' });
+        await expectEvent.inTransaction(tx, this.subordinate1, 'BeforeUnlockAsSubordinate', { count:'0', milestone:'0', balance:'0', managerBalance:'90' });
+        await expectEvent.inTransaction(tx, this.subordinate1, 'UnlockAsSubordinate', { count:'1', milestone:'1', balance:'12', managerBalance:'15' });
+        await expectEvent.inTransaction(tx, this.subordinate1, 'AfterUnlockAsSubordinate', { count:'2', milestone:'1', balance:'12', managerBalance:'15' });
+        await expectEvent.inTransaction(tx, this.subordinate2, 'BeforeUnlockAsSubordinate', { count:'0', milestone:'0', balance:'0', managerBalance:'90' });
+        await expectEvent.inTransaction(tx, this.subordinate2, 'UnlockAsSubordinate', { count:'1', milestone:'1', balance:'25', managerBalance:'15' });
+        await expectEvent.inTransaction(tx, this.subordinate2, 'AfterUnlockAsSubordinate', { count:'2', milestone:'1', balance:'25', managerBalance:'15' });
+        await expectEvent.inTransaction(tx, this.subordinate3, 'BeforeUnlockAsSubordinate', { count:'0', milestone:'0', balance:'0', managerBalance:'90' });
+        await expectEvent.inTransaction(tx, this.subordinate3, 'UnlockAsSubordinate', { count:'1', milestone:'1', balance:'38', managerBalance:'15' });
+        await expectEvent.inTransaction(tx, this.subordinate3, 'AfterUnlockAsSubordinate', { count:'2', milestone:'1', balance:'38', managerBalance:'15' });
 
         await token.transfer(pool.address, 976, { from:minter });
         out = await pool.unlock();
         tx = out.tx;
-        await expectEvent.notEmitted.inTransaction(tx, this.subordinate1, 'AsSubordinate');
-        await expectEvent.notEmitted.inTransaction(tx, this.subordinate2, 'AsSubordinate');
+        await expectEvent.notEmitted.inTransaction(tx, this.subordinate1, 'BeforeUnlockAsSubordinate');
+        await expectEvent.notEmitted.inTransaction(tx, this.subordinate1, 'UnlockAsSubordinate');
+        await expectEvent.notEmitted.inTransaction(tx, this.subordinate1, 'AfterUnlockAsSubordinate');
+        await expectEvent.notEmitted.inTransaction(tx, this.subordinate2, 'BeforeUnlockAsSubordinate');
+        await expectEvent.notEmitted.inTransaction(tx, this.subordinate2, 'UnlockAsSubordinate');
+        await expectEvent.notEmitted.inTransaction(tx, this.subordinate2, 'AfterUnlockAsSubordinate');
+        await expectEvent.notEmitted.inTransaction(tx, this.subordinate3, 'BeforeUnlockAsSubordinate');
+        await expectEvent.notEmitted.inTransaction(tx, this.subordinate3, 'UnlockAsSubordinate');
+        await expectEvent.notEmitted.inTransaction(tx, this.subordinate3, 'AfterUnlockAsSubordinate');
 
         await token.transfer(pool.address, 8, { from:minter });
         out = await pool.unlock();
         tx = out.tx;
-        await expectEvent.inTransaction(tx, this.subordinate1, 'AsSubordinate', { name:'BeforeUnlock', count:'3', milestone:'1', balance:'25', managerBalance:'753' });
-        await expectEvent.inTransaction(tx, this.subordinate1, 'AsSubordinate', { name:'Unlock', count:'4', milestone:'2', balance:'275', managerBalance:'3' });
-        await expectEvent.inTransaction(tx, this.subordinate1, 'AsSubordinate', { name:'AfterUnlock', count:'5', milestone:'2', balance:'275', managerBalance:'3' });
-        await expectEvent.inTransaction(tx, this.subordinate2, 'AsSubordinate', { name:'BeforeUnlock', count:'3', milestone:'1', balance:'50', managerBalance:'753' });
-        await expectEvent.inTransaction(tx, this.subordinate2, 'AsSubordinate', { name:'Unlock', count:'4', milestone:'2', balance:'550', managerBalance:'3' });
-        await expectEvent.inTransaction(tx, this.subordinate2, 'AsSubordinate', { name:'AfterUnlock', count:'5', milestone:'2', balance:'550', managerBalance:'3' });
+        await expectEvent.inTransaction(tx, this.subordinate1, 'BeforeUnlockAsSubordinate', { count:'3', milestone:'1', balance:'12', managerBalance:'753' });
+        await expectEvent.inTransaction(tx, this.subordinate1, 'UnlockAsSubordinate', { count:'4', milestone:'2', balance:'137', managerBalance:'3' });
+        await expectEvent.inTransaction(tx, this.subordinate1, 'AfterUnlockAsSubordinate', { count:'5', milestone:'2', balance:'137', managerBalance:'3' });
+        await expectEvent.inTransaction(tx, this.subordinate2, 'BeforeUnlockAsSubordinate', { count:'3', milestone:'1', balance:'25', managerBalance:'753' });
+        await expectEvent.inTransaction(tx, this.subordinate2, 'UnlockAsSubordinate', { count:'4', milestone:'2', balance:'275', managerBalance:'3' });
+        await expectEvent.inTransaction(tx, this.subordinate2, 'AfterUnlockAsSubordinate', { count:'5', milestone:'2', balance:'275', managerBalance:'3' });
+        await expectEvent.inTransaction(tx, this.subordinate3, 'BeforeUnlockAsSubordinate', { count:'3', milestone:'1', balance:'38', managerBalance:'753' });
+        await expectEvent.inTransaction(tx, this.subordinate3, 'UnlockAsSubordinate', { count:'4', milestone:'2', balance:'413', managerBalance:'3' });
+        await expectEvent.inTransaction(tx, this.subordinate3, 'AfterUnlockAsSubordinate', { count:'5', milestone:'2', balance:'413', managerBalance:'3' });
       });
     })
 });
