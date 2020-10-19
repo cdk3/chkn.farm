@@ -199,7 +199,7 @@ contract TokenStakeRewardPool is IStakingPool, IRewardPool, IPointPool, Subordin
     uint256 _milestone = milestone;
     UserRewardInfo storage rewardInfo = userRewardInfo[msg.sender];
     if (rewardInfo.milestone < _milestone || rewardInfo.unclaimedAmount > 0) {
-      _reward = claimToMilestone(msg.sender, _milestone);
+      _reward = _claimToMilestone(msg.sender, _milestone);
     }
   }
 
@@ -211,13 +211,13 @@ contract TokenStakeRewardPool is IStakingPool, IRewardPool, IPointPool, Subordin
     uint256 _milestone = milestone;
     UserRewardInfo storage rewardInfo = userRewardInfo[msg.sender];
     if (rewardInfo.milestone < _milestone) {
-      _reward = claimToMilestone(msg.sender, rewardInfo.milestone + 1);
+      _reward = _claimToMilestone(msg.sender, rewardInfo.milestone + 1);
     } else if (rewardInfo.unclaimedAmount > 0) {
-      _reward = claimToMilestone(msg.sender, rewardInfo.milestone);
+      _reward = _claimToMilestone(msg.sender, rewardInfo.milestone);
     }
   }
 
-  function claimToMilestone(address _user, uint256 _milestone) internal returns (uint256 _reward) {
+  function _claimToMilestone(address _user, uint256 _milestone) internal returns (uint256 _reward) {
     // check the earliest unclaimed milestone for the user, calculate their
     // reward, and advance.
     _advanceUnclaimedReward(_user, _milestone);
@@ -232,8 +232,8 @@ contract TokenStakeRewardPool is IStakingPool, IRewardPool, IPointPool, Subordin
     totalClaimedAmount = totalClaimedAmount.add(_reward);
 
     // transfer, log, return.
-    safeRewardTransfer(msg.sender, _reward);
-    emit Claim(msg.sender, _reward);
+    safeRewardTransfer(_user, _reward);
+    emit Claim(_user, _reward);
   }
 
   // advances and records any "unclaimed reward" earned by the user up to (not
