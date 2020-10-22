@@ -4,6 +4,7 @@ import "./interfaces/IPointPool.sol";
 import "./interfaces/IRewardPool.sol";
 import "./interfaces/IStakingPool.sol";
 import "./abstract/SubordinateTokenPool.sol";
+import "./abstract/TokenSender.sol";
 import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import "@openzeppelin/contracts/math/SafeMath.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
@@ -15,7 +16,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 // Staked tokens are worth a linearly decreasing number of points, depending on
 // how far into the milestone they were staked. 65% to the end, they are worth 35% value.
 // Tokens staked before a milestone period begins are worth full value.
-contract TokenStakeRewardPool is IStakingPool, IRewardPool, IPointPool, SubordinateTokenPool, Ownable {
+contract TokenStakeRewardPool is IStakingPool, IRewardPool, IPointPool, SubordinateTokenPool, TokenSender, Ownable {
   using SafeMath for uint256;
   using SafeERC20 for IERC20;
 
@@ -244,7 +245,7 @@ contract TokenStakeRewardPool is IStakingPool, IRewardPool, IPointPool, Subordin
     uint256 userMilestone = rewardInfo.milestone; // save gas
 
     // accumulate reward in PRECISION; divide at the end
-    uint256 reward;
+    uint256 _reward;
     if  (userMilestone < _milestone) {
       for (uint i = userMilestone; i < _milestone; i++) {
         address iToken = milestoneTokenArray[i];
@@ -253,25 +254,20 @@ contract TokenStakeRewardPool is IStakingPool, IRewardPool, IPointPool, Subordin
         // otherwise, use score.
         uint256 score = stake.milestone < i ? stake.amount : stake.score;
         uint256 milestoneReward = score.mul(milestoneRewardInfo[i].amountPerScore);
-        reward = reward.add(milestoneReward);
+        _reward = _reward.add(milestoneReward);
       }
 
-      reward = reward.div(PRECISION);
+      _reward = _reward.div(PRECISION);
 
       // update user reward
       rewardInfo.milestone = _milestone;  // first unexamined
-      rewardInfo.unclaimedAmount = rewardInfo.unclaimedAmount.add(reward);
+      rewardInfo.unclaimedAmount = rewardInfo.unclaimedAmount.add(_reward);
     }
   }
 
   function safeRewardTransfer(address _to, uint256 _amount) internal {
     IERC20 rewardToken = token();
-    uint256 tokenBalance = rewardToken.balanceOf(address(this));
-    if (_amount > tokenBalance) {
-        rewardToken.transfer(_to, tokenBalance);
-    } else {
-        rewardToken.transfer(_to, _amount);
-    }
+    _safeTransfer(address(rewardToken), _to, _amount);
   }
 
   // IStakingPool: Token deposits and withdraws
@@ -323,7 +319,7 @@ contract TokenStakeRewardPool is IStakingPool, IRewardPool, IPointPool, Subordin
 
     // send tokens
     IERC20 stakeToken = IERC20(_token);
-    stakeToken.transfer(msg.sender, _amount);
+    _safeTransfer(address(stakeToken), msg.sender, _amount);
 
     // adjust stake milestone
     if (userStake.milestone < _milestone) {
@@ -374,7 +370,7 @@ contract TokenStakeRewardPool is IStakingPool, IRewardPool, IPointPool, Subordin
     uint256 amount = stake.amount;
     uint256 score = stake.score;
     IERC20 stakeToken = IERC20(_token);
-    stakeToken.transfer(msg.sender, amount);
+    _safeTransfer(address(stakeToken), msg.sender, amount);
 
     // adjust user stake
     stake.amount = 0;

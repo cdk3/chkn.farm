@@ -1,6 +1,7 @@
 const TokenStakeRewardPool = artifacts.require('TokenStakeRewardPool');
 const MockSubordinateManagingTokenPool = artifacts.require('MockSubordinateManagingTokenPool');
 const MockERC20 = artifacts.require('MockERC20');
+const MockTetherToken = artifacts.require('MockTetherToken');
 
 const { expectEvent, expectRevert } = require('@openzeppelin/test-helpers');
 const { bn, expandToDecimals } = require('../shared/utilities');
@@ -11,7 +12,7 @@ contract('TokenStakeRewardPool', ([alice, bob, carol, dave, edie, minter, dev]) 
 
   beforeEach(async () => {
     this.token = await MockERC20.new('TOKEN1', 'TOKEN', '100000000', { from: minter });
-    this.reward = await MockERC20.new('REWARD', 'REWARD', '100000000', { from: minter });
+    this.reward = await MockTetherToken.new('100000000', 'REWARD', 'REWARD', 6, { from: minter });
   })
 
   it('constructor sets public values', async() => {
@@ -82,7 +83,7 @@ contract('TokenStakeRewardPool', ([alice, bob, carol, dave, edie, minter, dev]) 
 
   context('managing pool milestone progress and unlocks', () => {
     beforeEach(async() => {
-      this.pool = await TokenStakeRewardPool.new(this.token.address, { from:minter });;
+      this.pool = await TokenStakeRewardPool.new(this.token.address, { from:minter });
       this.manager = await MockSubordinateManagingTokenPool.new(this.reward.address, 0, 100, [this.pool.address]);
       await this.pool.setTokenPool(this.manager.address, { from:minter });
       this.token2 = await MockERC20.new('TOKEN2', 'TOKEN2', '100000000', { from: minter });
@@ -1487,55 +1488,53 @@ contract('TokenStakeRewardPool', ([alice, bob, carol, dave, edie, minter, dev]) 
     });
 
     it('"reward tokens" used as milestone tokens properly distinguish between reward funds and deposited funds', async () => {
-      const { token, pool, reward, manager } = this;
+      // Note: the deployed  version of TokenStakeRewardPool requires a correct ERC20
+      // implementation for its milestone tokens, which USDT is not.
+      const { pool, token } = this;
+      const manager = await MockSubordinateManagingTokenPool.new(token.address, 0, 100, [this.pool.address]);
+      await pool.setTokenPool(manager.address, { from:minter });
 
-      for (const user of [alice, bob, carol]) {
-        await reward.transfer(user, 1000, { from:minter });
-        await reward.approve(pool.address, 100000, { from:user });
-      }
-
-      await pool.setDefaulMilestoneToken(reward.address, { from:minter });
       await manager.setProgress(100);
       await manager.unlock();
 
-      await depositTokens(reward, [
+      await depositTokens(token, [
         { user:alice, amount:10 },
         { user:bob,   amount:20 },
         { user:carol, amount:30 }
-      ]); // total points 60
+      ], { pool, manager }); // total points 60
 
       await manager.setProgress(50);
-      await depositTokens(reward, [
+      await depositTokens(token, [
         { user:alice, amount:10 },  // = 15
         { user:bob,   amount:20}    // = 30
-      ]); // total points 75
+      ], { pool, manager }); // total points 75
 
       await manager.setProgress(90);
-      await depositTokens(reward, [
+      await depositTokens(token, [
         { user:alice, amount:100 },  // = 25
         { user:bob,   amount:150}    // = 45
-      ]); // total points 100.
+      ], { pool, manager }); // total points 100.
 
-      await reward.transfer(pool.address, '1000', { from:minter });
+      await token.transfer(pool.address, '1000', { from:minter });
       await manager.setProgress(100);
       await manager.unlock();
 
       await pool.claim({ from:alice }); // claim alice's 250; 750 remains
-      await fund(carol, reward, '10');
+      await fund(carol, token, '10', { pool, manager });
       // stakes:
       // alice 120
       // bob   190
       // carol 40
       // total: 350.
 
-      await reward.transfer(pool.address, '3500', { from:minter });
+      await token.transfer(pool.address, '3500', { from:minter });
       await manager.setProgress(100);
       await manager.unlock();
 
-      assert.equal(await reward.balanceOf(pool.address), '4600');   // 4500 - 250 + 350
-      assert.equal(await reward.balanceOf(alice), '1130');   // 1000 + 250 - 120
-      assert.equal(await reward.balanceOf(bob), '810');        // 1000 - 190
-      assert.equal(await reward.balanceOf(carol), '960');        // 1000 - 40
+      assert.equal(await token.balanceOf(pool.address), '4600');   // 4500 - 250 + 350
+      assert.equal(await token.balanceOf(alice), '1130');   // 1000 + 250 - 120
+      assert.equal(await token.balanceOf(bob), '810');        // 1000 - 190
+      assert.equal(await token.balanceOf(carol), '960');        // 1000 - 40
       assert.equal(await pool.reward(alice), '1450');   // 250 + 1200
       assert.equal(await pool.reward(bob), '2350');     // 450 + 1900
       assert.equal(await pool.reward(carol), '700');    // 300 + 400
@@ -1549,10 +1548,10 @@ contract('TokenStakeRewardPool', ([alice, bob, carol, dave, edie, minter, dev]) 
       await pool.claim({ from:bob });
       await pool.claim({ from:carol });
 
-      assert.equal(await reward.balanceOf(pool.address), '350');   // 4500 - 1450 - 2350 - 700 + 350
-      assert.equal(await reward.balanceOf(alice), '2330');   // 1000 + 1450 - 120
-      assert.equal(await reward.balanceOf(bob), '3160');        // 1000 + 2350 - 190
-      assert.equal(await reward.balanceOf(carol), '1660');        // 1000 + 700 - 40
+      assert.equal(await token.balanceOf(pool.address), '350');   // 4500 - 1450 - 2350 - 700 + 350
+      assert.equal(await token.balanceOf(alice), '2330');   // 1000 + 1450 - 120
+      assert.equal(await token.balanceOf(bob), '3160');        // 1000 + 2350 - 190
+      assert.equal(await token.balanceOf(carol), '1660');        // 1000 + 700 - 40
       assert.equal(await pool.reward(alice), '1450');   // 250 + 1200
       assert.equal(await pool.reward(bob), '2350');     // 450 + 1900
       assert.equal(await pool.reward(carol), '700');    // 300 + 400

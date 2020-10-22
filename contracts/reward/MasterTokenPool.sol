@@ -3,12 +3,13 @@ pragma solidity 0.6.12;
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "./abstract/DepositMilestoneTokenPool.sol";
 import "./abstract/SubordinateManagingPool.sol";
+import "./abstract/TokenSender.sol";
 import "@openzeppelin/contracts/math/SafeMath.sol";
 
 // Tracks reward pool milestones, distributing quantities to subordinate pools
 // and to a devaddr. The devaddr gets 25% off the top; remaining funds are split
 // between subordinate pools on each unlock.
-contract MasterTokenPool is SubordinateManagingPool, DepositMilestoneTokenPool, Ownable {
+contract MasterTokenPool is SubordinateManagingPool, DepositMilestoneTokenPool, TokenSender, Ownable {
   using SafeMath for uint256;
 
   event SetPools(address[] pools, uint256[] poolShare);
@@ -82,10 +83,10 @@ contract MasterTokenPool is SubordinateManagingPool, DepositMilestoneTokenPool, 
     uint256 remaining = funds;
     for (uint i = 0; i < pools.length - 1; i++) {
       uint256 share = funds.mul(poolShare[i]).div(totalPoolShare);
-      token.transfer(pools[i], share);
+      _safeTransfer(address(token), pools[i], share);
       remaining = remaining.sub(share);
     }
-    token.transfer(pools[pools.length - 1], remaining);
+    _safeTransfer(address(token), pools[pools.length - 1], remaining);
 
     // note change in funds
     _updateTokenBalance();
@@ -116,7 +117,7 @@ contract MasterTokenPool is SubordinateManagingPool, DepositMilestoneTokenPool, 
       uint received = _balance.sub(lastTokenBalance);
       uint devShare = received.div(4);
 
-      token.transfer(devaddr, devShare);
+      _safeTransfer(address(token), devaddr, devShare);
 
       lastTokenBalance = _balance.sub(devShare);
     } else if (_balance != lastTokenBalance) {

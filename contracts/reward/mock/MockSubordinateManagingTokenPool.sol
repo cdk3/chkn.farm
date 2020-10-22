@@ -1,9 +1,10 @@
 pragma solidity 0.6.12;
 
 import "../abstract/SubordinateManagingPool.sol";
+import "../abstract/TokenSender.sol";
 import "../interfaces/ITokenPool.sol";
 
-contract MockSubordinateManagingTokenPool is SubordinateManagingPool, ITokenPool {
+contract MockSubordinateManagingTokenPool is SubordinateManagingPool, TokenSender, ITokenPool {
 
   IERC20 public override token;
   uint256 public override milestone;
@@ -30,7 +31,7 @@ contract MockSubordinateManagingTokenPool is SubordinateManagingPool, ITokenPool
 
   function _unlock() internal override {
     milestone = milestone + 1;
-    token.transfer(pools[0], token.balanceOf(address(this)));
+    _safeTransfer(address(token), pools[0], token.balanceOf(address(this)));
 
     SubordinateManagingPool._unlock();
   }

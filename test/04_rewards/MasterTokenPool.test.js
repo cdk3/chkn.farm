@@ -1,6 +1,7 @@
 const MasterTokenPool = artifacts.require('MasterTokenPool');
 const MockSubordinateTokenPool = artifacts.require('MockSubordinateTokenPool');
 const MockERC20 = artifacts.require('MockERC20');
+const MockTetherToken = artifacts.require('MockTetherToken');
 
 const { expectEvent, expectRevert } = require('@openzeppelin/test-helpers');
 const { bn } = require('../shared/utilities');
@@ -632,4 +633,94 @@ contract('MasterTokenPool', ([alice, bob, minter, dev, owner]) => {
         await expectEvent.inTransaction(tx, this.subordinate3, 'AfterUnlockAsSubordinate', { count:'5', milestone:'2', balance:'413', managerBalance:'3' });
       });
     })
+
+    context('with large token quantities', () => {
+      const big_milestones = [
+        bn("500000000000"),
+        bn("1250000000000"),
+        bn("2500000000000"),
+        bn("5000000000000"),
+        bn("12500000000000"),
+        bn("25000000000000"),
+        bn("50000000000000"),
+        bn("100000000000000"),
+        bn("250000000000000"),
+        bn("500000000000000")
+      ]
+      const big_milestone_step = bn('100000000000000');
+      beforeEach(async () => {
+        this.pools = [this.subordinate1.address, this.subordinate2.address];
+        this.token = await MockTetherToken.new('10334246184469201', "USD Tether", 'USDT', 6, { from: minter });
+        this.pool = await MasterTokenPool.new(this.token.address, big_milestones, big_milestone_step, this.pools, [65, 10], dev);
+      });
+
+      const getMilestoneRange = (milestone) => {
+        if  (milestone < big_milestones.length) {
+          return [
+            bn(milestone === 0 ? 0 : big_milestones[milestone - 1]),
+            big_milestones[milestone]
+          ]
+        } else {
+          const base = big_milestones[big_milestones.length - 1];
+          const steps = bn(milestone - big_milestones.length);
+          return [
+            base.add(big_milestone_step.mul(steps)),
+            base.add(big_milestone_step.mul(steps.add(1)))
+          ]
+        }
+      }
+
+      const bns = (val) =>  {
+        return bn(val.toString()).toString();
+      }
+
+      const expectProgress = async(milestone, progress) => {
+        const { pool } = this;
+
+        const [start, goal] = getMilestoneRange(milestone);
+
+        assert.equal(bns(await pool.milestone()), `${milestone}`);
+        assert.equal(bns(await pool.milestoneStart()), `${start}`);
+        assert.equal(bns(await pool.milestoneGoal()), `${goal}`);
+        assert.equal(bns(await pool.milestoneProgress()), `${progress}`);
+        assert.equal(await pool.canUnlock(), bn(progress).gte(bn(goal)));
+      }
+
+      const expectFundsBig = async (milestone, progress, explicit = {}) => {
+        let { dev:devFunds, pool:poolFunds } = explicit;
+        const { token, subordinate1, subordinate2, subordinate3 } = this;
+
+        const [start, goal] = getMilestoneRange(milestone);
+        const poolshare1 = Math.floor(65 * start / 100);
+        const poolshare2 = Math.ceil(10 * start / 100);
+        const poolshare3 = Math.ceil(3 * start / 8);
+
+        if (devFunds === void 0) {
+          devFunds = Math.floor(progress / 4);
+        }
+        if (poolFunds === void 0) {
+          poolFunds = progress - (devFunds + poolshare1 + poolshare2 + poolshare3)
+        }
+
+        assert.equal(bns(await token.balanceOf(dev)), `${devFunds}`);
+        assert.equal(bns(await token.balanceOf(subordinate1.address)), `${poolshare1}`);
+        assert.equal(bns(await token.balanceOf(subordinate2.address)), `${poolshare2}`);
+        assert.equal(bns(await token.balanceOf(subordinate3.address)), `${poolshare3}`);
+        assert.equal(bns(await token.balanceOf(this.pool.address)), `${poolFunds}`);
+      }
+
+      it('should unlock without error', async () => {
+        const { pool, token } = this;
+
+        await expectProgress(0, 0);
+
+        await token.transfer(pool.address, '7886095536', { from:minter });
+        await expectProgress(0, '7886095536');
+        await expectFundsBig(0, '7886095536', { dev:0 });
+
+        await pool.unlock();
+        await expectProgress(0, '7886095536');
+        await expectFundsBig(0, '7886095536');
+      });
+    });
 });
